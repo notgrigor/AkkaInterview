@@ -4,6 +4,7 @@ import akka.actor.typed.*;
 import akka.actor.typed.javadsl.*;
 
 import java.time.Duration;
+import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 
 final class Job {
@@ -26,7 +27,8 @@ final class JobDone {
 
 // ===== Worker =====
 class Worker {
-    interface Command {}
+    interface Command {
+    }
 
     static final class Process implements Command {
         final Job job;
@@ -40,19 +42,23 @@ class Worker {
 
     static Behavior<Command> create(String name) {
         return Behaviors.setup(ctx -> Behaviors.receive(Command.class)
-            .onMessage(Process.class, msg -> {
-                long delay = ThreadLocalRandom.current().nextLong(40, 121);
-                try { Thread.sleep(delay); } catch (InterruptedException ignored) {}
-                msg.replyTo.tell(new JobDone(msg.job.id));
-                return Behaviors.same();
-            })
-            .build());
+                .onMessage(Process.class, msg -> {
+                    long delay = ThreadLocalRandom.current().nextLong(40, 121);
+                    try {
+                        Thread.sleep(delay);
+                    } catch (InterruptedException ignored) {
+                    }
+                    msg.replyTo.tell(new JobDone(msg.job.id));
+                    return Behaviors.same();
+                })
+                .build());
     }
 }
 
 // ===== Balancer =====
 class Balancer {
-    interface Command {}
+    interface Command {
+    }
 
     static final class Submit implements Command {
         final Job job;
@@ -61,6 +67,14 @@ class Balancer {
         Submit(Job job, ActorRef<JobDone> replyTo) {
             this.job = job;
             this.replyTo = replyTo;
+        }
+    }
+
+    private static final class WrappedDone implements Command {
+        final JobDone done;
+
+        WrappedDone(JobDone d) {
+            this.done = d;
         }
     }
 
@@ -83,11 +97,11 @@ public class Main {
         ActorSystem<Balancer.Command> system = ActorSystem.create(Balancer.create(4), "lb-simple");
 
         ActorRef<JobDone> client = system.systemActorOf(
-            Behaviors.receiveMessage(msg -> {
-                System.out.println("DONE " + msg.id);
-                return Behaviors.same();
-            }),
-            "client"
+                Behaviors.receiveMessage(msg -> {
+                    System.out.println("DONE " + msg.id);
+                    return Behaviors.same();
+                }),
+                "client", Props.empty()
         );
 
         for (int i = 0; i < 100; i++) {
@@ -95,9 +109,9 @@ public class Main {
         }
 
         system.scheduler().scheduleOnce(
-            Duration.ofSeconds(5),
-            system::terminate,
-            system.executionContext()
+                Duration.ofSeconds(5),
+                system::terminate,
+                system.executionContext()
         );
     }
 }
